@@ -16,7 +16,7 @@ import html as html_lib
 # CONFIG
 # ==============================
 TOOL_NAME = "saudadeDaEx"
-VERSION = "0.2"
+VERSION = "0.3"
 NMAP = shutil.which("nmap") or "nmap"
 NIKTO = shutil.which("nikto") or "nikto"
 WHATWEB = shutil.which("whatweb") or None
@@ -338,18 +338,57 @@ def scan_rede_turbo(alvo):
 
 def menu():
     banner()
-    print(f"{CYAN}Versão: {VERSION} {RESET}\n")
+    print(f"{CYAN}Versão: {VERSION}{RESET}\n")
     print(f"{GREEN}1){RESET} Scan SITE (TURBO)")
     print(f"{GREEN}2){RESET} Scan SITE (FULL)")
     print(f"{GREEN}3){RESET} Scan REDE (TURBO)")
-    print(f"{GREEN}4){RESET} Sair\n")
+    print(f"{GREEN}4){RESET} Atualizar SaudadeDaEx")
+    print(f"{GREEN}5){RESET} Desinstalar SaudadeDaEx")
+    print(f"{GREEN}6){RESET} Sair\n")
     return input(f"{CYAN}Escolha: {RESET}")
+
 
 def confirm_auth():
     print(f"{YELLOW}\nVocê TEM autorização para escanear este alvo? (yes/no){RESET}")
     if input("> ").lower() not in ("yes", "y"):
         print(f"{RED}Operação abortada.{RESET}")
         sys.exit()
+
+
+# ==============================
+# UPDATE AUTOMÁTICO
+# ==============================
+def update_saudade():
+    print(f"{CYAN}{BOLD}Verificando atualizações...{RESET}")
+
+    INSTALL_PATH = "/usr/local/bin/saudade"
+    RAW_URL = "https://raw.githubusercontent.com/Loki-dfs/SaudadeDaEX/main/saudadeDaEx.py"
+
+    try:
+        # baixar versão nova para memória
+        print(f"{YELLOW}Baixando versão mais recente...{RESET}")
+        response = urllib.request.urlopen(RAW_URL, timeout=10)
+        new_code = response.read().decode("utf-8")
+
+        if len(new_code) < 100:
+            print(f"{RED}Erro: código remoto parece inválido!{RESET}")
+            sys.exit()
+
+        # escrever nova versão no arquivo instalado
+        print(f"{YELLOW}Atualizando arquivo em:{RESET} {INSTALL_PATH}")
+        with open(INSTALL_PATH, "w", encoding="utf-8") as f:
+            f.write(new_code)
+
+        os.chmod(INSTALL_PATH, 0o755)
+
+        print(f"\n{GREEN}{BOLD}SaudadeDaEx atualizado com sucesso!{RESET}")
+        print(f"{GREEN}Versão atualizada disponível agora com o comando:{RESET}")
+        print(f"{CYAN}saudade{RESET}\n")
+
+    except Exception as e:
+        print(f"{RED}Falha ao atualizar: {e}{RESET}")
+
+    sys.exit()
 
 
 def main():
@@ -361,13 +400,27 @@ def main():
     while True:
         choice = menu()
 
+        # UPDATE
         if choice == "4":
+            update_saudade()
+            continue
+
+        # UNINSTALL
+        if choice == "5":
+            uninstall_saudade()
+            continue
+
+        # SAIR
+        if choice == "6":
+            print(f"{GREEN}Saindo…{RESET}")
             sys.exit()
 
-        if choice not in ("1","2","3"):
+        # opções inválidas
+        if choice not in ("1", "2", "3"):
             print(f"{RED}Opção inválida.{RESET}")
             continue
 
+        # CONFIRMAR AUTORIZAÇÃO
         confirm_auth()
 
         alvo = input(f"{CYAN}Digite o alvo:{RESET} ").strip()
@@ -383,6 +436,7 @@ def main():
         nikto_out = ""
         techs = []
 
+        # EXECUÇÃO DOS TIPOS DE SCAN
         if choice == "1":
             print(f"{BLUE}Executando SITE TURBO…{RESET}")
             nmap_out, nikto_out, techs = scan_site_turbo(host)
@@ -397,22 +451,22 @@ def main():
             nikto_out = ""
             techs = []
 
-        # salvar brutos
-        with open(os.path.join(pasta,"nmap_raw.txt"),"w", encoding="utf-8") as f:
+        # SALVAR BRUTOS
+        with open(os.path.join(pasta, "nmap_raw.txt"), "w", encoding="utf-8") as f:
             f.write(nmap_out or "")
+
         if nikto_out:
-            with open(os.path.join(pasta,"nikto_raw.txt"),"w", encoding="utf-8") as f:
+            with open(os.path.join(pasta, "nikto_raw.txt"), "w", encoding="utf-8") as f:
                 f.write(nikto_out or "")
 
-        # salvar tecnologias raw (whatweb ou fallback)
-        # Note: detectar_tecnologias já salvou raw into current dir when used; we want it in pasta
-        # Try to re-run minimal detection to save raw directly in the pasta (prefer WhatWeb if available)
-        if choice in ("1","2"):
+        # SALVAR TECHNOLOGIAS RAW
+        if choice in ("1", "2"):
             if WHATWEB:
                 ww_out = run_cmd(f"{WHATWEB} -q http://{host}")
-                with open(os.path.join(pasta,"whatweb_raw.txt"), "w", encoding="utf-8") as f:
+                with open(os.path.join(pasta, "whatweb_raw.txt"), "w", encoding="utf-8") as f:
                     f.write(ww_out or "")
-                # parse whatweb output (again) if techs empty
+
+                # Parse rápido
                 if not techs:
                     parts = ww_out.split("[")
                     techs = []
@@ -420,27 +474,28 @@ def main():
                         tech = p.split("]")[0].strip()
                         if tech and tech not in techs:
                             techs.append(tech)
+
             else:
-                # fallback request and save
+                # fallback simples
                 try:
                     url = "http://" + host if not re.match(r"^https?://", host) else host
                     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (saudadeDaEx)"})
                     with urllib.request.urlopen(req, timeout=8) as resp:
                         headers = resp.headers
                         body = resp.read(100000).decode(errors="ignore")
-                        with open(os.path.join(pasta,"tech_raw.txt"), "w", encoding="utf-8") as f:
+                        with open(os.path.join(pasta, "tech_raw.txt"), "w", encoding="utf-8") as f:
                             f.write("=== HEADERS ===\n")
                             f.write(str(headers))
                             f.write("\n\n=== HTML (primeiros 100KB) ===\n")
                             f.write(body)
-                except Exception:
-                    # nothing to save
+                except:
                     pass
 
-        # interpretar
-        if choice in ("1","2"):
+        # INTERPRETAÇÃO E RESUMO
+        if choice in ("1", "2"):
             portas = interpretar_nmap_site(nmap_out)
             vulns, caminhos = interpretar_nikto(nikto_out)
+
             resumo = gerar_html_resumo(
                 pasta, alvo, "site",
                 vulns=vulns, portas=portas, caminhos=caminhos, tecnologias=techs
@@ -451,17 +506,17 @@ def main():
             print(f"Portas abertas: {CYAN}{len(portas)}{RESET}")
             print(f"Diretórios sensíveis: {MAGENTA}{caminhos}{RESET}\n")
 
-            # mostrar tecnologias no terminal
             if techs:
                 print(f"{GREEN}Tecnologias detectadas:{RESET}")
                 for t in techs:
                     print(f" - {YELLOW}{t}{RESET}")
                 print()
             else:
-                print(f"{YELLOW}Nenhuma tecnologia detectada ou detector fallback falhou.{RESET}\n")
+                print(f"{YELLOW}Nenhuma tecnologia detectada.{RESET}\n")
 
         else:
             hosts, portas = interpretar_nmap_rede(nmap_out)
+
             resumo = gerar_html_resumo(
                 pasta, alvo, "rede",
                 hosts=hosts, portas=portas
@@ -481,8 +536,122 @@ def main():
             print(f"{GREEN}Saindo…{RESET}")
             break
 
+# ==============================
+# UNINSTALL
+# ==============================
+def uninstall_saudade():
+    print(f"{RED}{BOLD}Iniciando desinstalação do SaudadeDaEx...{RESET}\n")
 
+    INSTALL_PATH = "/usr/local/bin/saudade"
+
+    # remover comando global
+    if os.path.exists(INSTALL_PATH):
+        try:
+            os.remove(INSTALL_PATH)
+            print(f"{GREEN}[✓]{RESET} Comando removido: {INSTALL_PATH}")
+        except:
+            print(f"{RED}[X]{RESET} Não foi possível remover {INSTALL_PATH}")
+    else:
+        print(f"{YELLOW}[!]{RESET} O comando não estava instalado em {INSTALL_PATH}")
+
+    # remover pastas de relatórios
+    removed = 0
+    for pasta in os.listdir("."):
+        if pasta.startswith("saudade_"):
+            try:
+                shutil.rmtree(pasta)
+                removed += 1
+            except:
+                pass
+
+    print(f"{GREEN}[✓]{RESET} Pastas removidas: {removed}")
+
+    # remover configs futuras
+    HOME_CONFIG = os.path.expanduser("~/.saudade")
+    if os.path.exists(HOME_CONFIG):
+        try:
+            shutil.rmtree(HOME_CONFIG)
+            print(f"{GREEN}[✓]{RESET} Configurações removidas.")
+        except:
+            print(f"{RED}[X]{RESET} Não foi possível remover configs.")
+
+    print(f"\n{GREEN}{BOLD}SaudadeDaEx removido do sistema.{RESET}")
+    sys.exit()
+
+
+# ==============================
+# UPDATE AUTOMÁTICO (VERSÃO CORRETA)
+# ==============================
+def update_saudade():
+    print(f"{CYAN}{BOLD}Verificando atualizações...{RESET}")
+
+    INSTALL_PATH = "/usr/local/bin/saudade"
+    RAW_URL = "https://raw.githubusercontent.com/Loki-dfs/SaudadeDaEX/main/saudadeDaEx.py"
+
+    try:
+        print(f"{YELLOW}Baixando versão mais recente...{RESET}")
+        response = urllib.request.urlopen(RAW_URL, timeout=10)
+        new_code = response.read().decode("utf-8")
+
+        if len(new_code) < 100:
+            print(f"{RED}Erro: código remoto parece inválido!{RESET}")
+            sys.exit()
+
+        print(f"{YELLOW}Atualizando arquivo em:{RESET} {INSTALL_PATH}")
+        with open(INSTALL_PATH, "w", encoding="utf-8") as f:
+            f.write(new_code)
+
+        os.chmod(INSTALL_PATH, 0o755)
+
+        print(f"\n{GREEN}{BOLD}SaudadeDaEx atualizado com sucesso!{RESET}")
+        print(f"{GREEN}Use:{RESET} {CYAN}saudade{RESET}")
+
+    except Exception as e:
+        print(f"{RED}Falha ao atualizar: {e}{RESET}")
+
+    sys.exit()
+
+
+# ==============================
+# ENTRYPOINT COM ARGUMENTOS
+# ==============================
 if __name__ == "__main__":
+
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+
+        # HELP
+        if arg in ("--help", "-h", "help"):
+            print(f"""
+{GREEN}{BOLD}SaudadeDaEx — Ajuda{RESET}
+
+Comandos disponíveis:
+
+  saudade                   → abre o menu  
+  saudade --help            → mostra ajuda  
+  saudade --version         → mostra a versão  
+  saudade --update          → atualiza para a versão mais recente  
+  saudade --uninstall       → remove completamente  
+            """)
+            sys.exit()
+
+        # VERSION
+        if arg in ("--version", "-v"):
+            print(f"{GREEN}{BOLD}SaudadeDaEx versão {VERSION}{RESET}")
+            sys.exit()
+
+        # UPDATE
+        if arg in ("--update", "update"):
+            update_saudade()
+
+        # UNINSTALL
+        if arg in ("--uninstall", "-u", "uninstall"):
+            uninstall_saudade()
+
+        print(f"{RED}Comando desconhecido: {arg}{RESET}")
+        sys.exit()
+
+    # SEM ARGUMENTOS → roda o programa normal
     try:
         main()
     except KeyboardInterrupt:
