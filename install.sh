@@ -1,15 +1,7 @@
-#!/bin/bash
-
-# ==========================================
-# SaudadeDaEx - Instalador Oficial
-# Feito para: Linux (Ubuntu, Kali, Debian, Arch)
-# Autor: Adryel Lucatoni
-# ==========================================
-
 TOOL_NAME="saudadeDaEx"
 COMMAND_NAME="saudade"
 
-RAW_URL="https://SEU_USUARIO.github.io/saudadeDaEx-site/saudadedaex.py"
+RAW_URL="https://raw.githubusercontent.com/Loki-dfs/SaudadeDaEX/main/saudadeDaEx.py"
 
 INSTALL_DIR="/usr/local/bin"
 SCRIPT_PATH="$INSTALL_DIR/$COMMAND_NAME"
