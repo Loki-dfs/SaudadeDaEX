@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# saudadeDaEx.py — versão refatorada "Cyber Roxo"
-# Mantém 100% das funcionalidades originais, apenas melhora estilo, organização e UX.
 
 import os
 import sys
@@ -17,9 +14,8 @@ import html as html_lib
 # Import do interpreter (mantenha interpreter.py ao lado)
 from interpreter import InterpreterEngine
 
-# ==============================
-# CONFIG / PATHS / TOOLS
-# ==============================
+
+
 TOOL_NAME = "saudadeDaEx"
 VERSION = "0.5"
 NMAP = shutil.which("nmap") or "nmap"
@@ -27,24 +23,20 @@ NIKTO = shutil.which("nikto") or "nikto"
 WHATWEB = shutil.which("whatweb") or None
 OPEN_FOLDER = True
 
-# ==============================
-# COLORS (CYBER ROXO THEME)
-# ==============================
+
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
 
 PURPLE = "\033[95m"
-MAGENTA = "\033[35m"   # alternative purple
+MAGENTA = "\033[35m"  
 CYAN = "\033[36m"
 YELLOW = "\033[33m"
 GREEN = "\033[32m"
 RED = "\033[31m"
 WHITE = "\033[37m"
 
-# ==============================
-# UTIL: LOG / UI / HELPERS
-# ==============================
+
 
 def _fmt(prefix: str, msg: str, color: str = WHITE):
     return f"{color}{prefix}{RESET} {msg}"
@@ -84,7 +76,7 @@ def clear():
 def safe_name(s):
     return re.sub(r"[^a-zA-Z0-9_-]", "_", s)
 
-# run a shell command with timeout, returns combined stdout+stderr
+
 def run_cmd(cmd, timeout=None):
     try:
         res = subprocess.run(cmd, shell=True, text=True,
@@ -96,7 +88,7 @@ def run_cmd(cmd, timeout=None):
     except Exception as e:
         return f"[ERRO AO EXECUTAR] {e}"
 
-# Spinner: melhor visual, aceita evento ou thread
+
 class Spinner:
     def __init__(self, text="Processando", color=PURPLE):
         self.text = text
@@ -125,7 +117,7 @@ class Spinner:
             i += 1
         print("\r" + " " * (len(self.text) + 6), end="\r")
 
-    # context manager
+    
     def __enter__(self):
         self.start()
         return self
@@ -133,7 +125,7 @@ class Spinner:
     def __exit__(self, exc_type, exc, tb):
         self.stop()
 
-# open folder cross-platform
+
 def open_folder(path):
     try:
         system = platform.system()
@@ -146,16 +138,14 @@ def open_folder(path):
     except Exception:
         warn("Falha ao abrir pasta (verifique ambiente gráfico).")
 
-# confirm authorization helper
+
 def confirm_auth():
     print(f"{YELLOW}\nVocê TEM autorização para escanear este alvo? (yes/no){RESET}")
     if input("> ").lower() not in ("yes", "y"):
         err("Operação abortada.")
         sys.exit()
 
-# ==============================
-# PARSERS / INTERPRETERS (UTILS)
-# ==============================
+
 
 def interpretar_nikto(txt):
     """
@@ -186,9 +176,7 @@ def interpretar_nmap_rede(txt):
     portas = re.findall(r"([0-9]+)/tcp\s+open", txt)
     return hosts, portas
 
-# ==============================
-# HTML REPORT GENERATOR (kept behavior)
-# ==============================
+
 def gerar_html_resumo(pasta, alvo, modo, **stats):
     filename = f"{safe_name(alvo)}_resumo.html"
     path = os.path.join(pasta, filename)
@@ -268,9 +256,7 @@ def gerar_html_resumo(pasta, alvo, modo, **stats):
 
     return path
 
-# ==============================
-# TECHNOLOGY DETECTION
-# ==============================
+
 def detectar_tecnologias(host, pasta):
     """
     Detecta tecnologias via WhatWeb (se disponível) ou via fallback (headers + html patterns).
@@ -281,7 +267,7 @@ def detectar_tecnologias(host, pasta):
     if not re.match(r"^https?://", host_url):
         host_url = "http://" + host_url
 
-    # Try WhatWeb (if installed)
+    
     if WHATWEB:
         try:
             out = run_cmd(f"{WHATWEB} -q {host_url}")
@@ -296,7 +282,7 @@ def detectar_tecnologias(host, pasta):
         except Exception:
             pass
 
-    # Fallback: http headers + basic HTML inspection
+    
     try:
         req = urllib.request.Request(host_url, headers={"User-Agent": f"Mozilla/5.0 ({TOOL_NAME})"})
         with urllib.request.urlopen(req, timeout=8) as resp:
@@ -315,7 +301,7 @@ def detectar_tecnologias(host, pasta):
             if xpb and xpb not in techs:
                 techs.append(f"X-Powered-By: {xpb}")
 
-            # cookies check
+            
             try:
                 setcookie = headers.get_all("Set-Cookie") if hasattr(headers, "get_all") else headers.get("Set-Cookie")
             except Exception:
@@ -351,9 +337,7 @@ def detectar_tecnologias(host, pasta):
 
     return techs
 
-# ==============================
-# SCANS — turbo / full / rede
-# ==============================
+
 
 def scan_site_turbo(host):
     """
@@ -385,7 +369,7 @@ def scan_site_turbo(host):
         while t1.is_alive() or t2.is_alive():
             time.sleep(0.12)
 
-    # WhatWeb quick (if available)
+   
     if WHATWEB:
         try:
             ww_out = run_cmd(f"{WHATWEB} -q http://{host} --log-brief 2>/dev/null")
@@ -420,9 +404,7 @@ def scan_rede_turbo(alvo):
     with Spinner("Scan de rede — executando", color=MAGENTA):
         return run_cmd(f"{NMAP} -T5 -F -n {alvo}")
 
-# ==============================
-# MENU / FLOW
-# ==============================
+
 
 def printed_menu():
     banner()
@@ -435,9 +417,7 @@ def printed_menu():
     print(f"{GREEN}6){RESET} Sair\n")
     return input(f"{CYAN}Escolha: {RESET}")
 
-# ==============================
-# UPDATE / UNINSTALL (mantidos)
-# ==============================
+
 
 def update_saudade():
     print(f"{CYAN}{BOLD}Verificando atualizações...{RESET}")
@@ -502,9 +482,7 @@ def uninstall_saudade():
     ok("SaudadeDaEx removido do sistema.")
     sys.exit()
 
-# ==============================
-# MAIN ENTRYPOINT
-# ==============================
+
 def main():
     deps = check_dependencies()
     if deps:
@@ -568,7 +546,6 @@ def main():
             err(f"Erro durante o scan: {e}")
             continue
 
-        # SALVAR BRUTOS
         try:
             with open(os.path.join(pasta, "nmap_raw.txt"), "w", encoding="utf-8") as f:
                 f.write(nmap_out or "")
@@ -579,7 +556,7 @@ def main():
                 with open(os.path.join(pasta, "whatweb_raw.txt"), "w", encoding="utf-8") as f:
                     f.write(ww_out or "")
             else:
-                # fallback save headers/html
+                
                 try:
                     url = "http://" + host if not re.match(r"^https?://", host) else host
                     req = urllib.request.Request(url, headers={"User-Agent": f"Mozilla/5.0 ({TOOL_NAME})"})
@@ -596,7 +573,7 @@ def main():
         except Exception as e:
             warn(f"Falha ao salvar saídas brutas: {e}")
 
-        # INTERPRETAÇÃO E RESUMO (USANDO InterpreterEngine)
+        
         try:
             engine = InterpreterEngine(tool_name=TOOL_NAME)
 
@@ -647,9 +624,9 @@ def main():
 
         except Exception as e:
             warn(f"Falha na interpretação (InterpreterEngine). O relatório bruto foi salvo. Erro: {e}")
-            # fallback: generate a simple resumo HTML using old function
+            
             try:
-                # try to compute some basic stats for summary
+                
                 if choice in ("1", "2"):
                     vulns, caminhos = interpretar_nikto(nikto_out)
                     portas = interpretar_nmap_site(nmap_out)
@@ -678,9 +655,7 @@ def check_dependencies():
         missing.append("nikto")
     return missing
 
-# ==============================
-# COMMAND LINE ENTRY (ARGUMENTS)
-# ==============================
+
 def print_help():
     print(f"""
 {GREEN}{BOLD}SaudadeDaEx — Ajuda{RESET}
