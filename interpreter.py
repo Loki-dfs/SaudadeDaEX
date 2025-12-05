@@ -1,4 +1,4 @@
-# interpreter.py
+#
 import re
 import datetime
 import os
@@ -13,7 +13,7 @@ class InterpreterEngine:
     - relatório HTML salvo no disco
     """
 
-    # portas consideradas de alto risco (heurística)
+    
     HIGH_RISK_PORTS = {21,22,23,25,69,135,139,445,1433,1521,3306,3389}
     MEDIUM_RISK_PORTS = {80,443,8080,8443,8000,8888}
 
@@ -31,16 +31,16 @@ class InterpreterEngine:
         if not nmap_out:
             return hosts, portas
 
-        # hosts
+        
         hosts += re.findall(r"Nmap scan report for ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)", nmap_out)
 
-        # portas: lines like "80/tcp open  http    Apache httpd 2.4.29 ((Ubuntu))"
+        
         for m in re.finditer(r"(\d+)\/(tcp|udp)\s+(\w+)\s+([^\n\r]+)", nmap_out):
             port = int(m.group(1))
             proto = m.group(2)
             state = m.group(3)
             rest = m.group(4).strip()
-            # split service and version if exists
+            
             parts = rest.split(None,1)
             service = parts[0] if parts else ""
             version = parts[1] if len(parts)>1 else ""
@@ -67,12 +67,12 @@ class InterpreterEngine:
             line = line.strip()
             if not line:
                 continue
-            # Nikto findings often use "+ " or output [!] or "OSVDB-"
+           
             if line.startswith("+") or "OSVDB-" in line or "ERROR" in line or "Uncommon header" in line:
-                # limpar prefixos
+               
                 findings.append(re.sub(r"^\+\s*", "", line))
             else:
-                # linhas com /cgi/ ou /backup etc
+                
                 if re.search(r"/[A-Za-z0-9_\-./]+", line) and ("200" in line or "Found" in line or "allowed" in line.lower()):
                     findings.append(line)
         return findings
@@ -87,27 +87,25 @@ class InterpreterEngine:
         if not whatweb_out:
             return techs
 
-        # tentar extrair tokens entre colchetes e após 'Engine' ou patterns comuns
-        # versão 1: split by '[' and ']' heurística
-        # fallback: procurar por tokens conhecidos
+       
         for line in whatweb_out.splitlines():
             line = line.strip()
             if not line:
                 continue
-            # tokens after "Engine:" or between commas
+           
             m = re.search(r"Engine:\s*(.+)", line)
             if m:
                 parts = [p.strip() for p in re.split(r",|\|", m.group(1)) if p.strip()]
                 for p in parts:
                     if p not in techs:
                         techs.append(p)
-            # fallback generic: buscar palavras-chave
+            
             for kw in ["WordPress","Drupal","Joomla","php","nginx","Apache","IIS","Cloudflare","WAF","React","Angular","Vue","Express","Django","Flask"]:
                 if re.search(re.escape(kw), line, re.IGNORECASE) and kw not in techs:
                     techs.append(kw)
         return techs
 
-    # ---------- heurísticas e scoring ----------
+   
     def score_ports(self, portas):
         """
         Atribui severidade para portas: return list of portas with 'risk' field (Low/Medium/High)
@@ -121,7 +119,7 @@ class InterpreterEngine:
             elif portnum in self.MEDIUM_RISK_PORTS:
                 risk = "Médio"
             else:
-                # heurística: portas <1024 não-ephemeral podem ter risco médio
+                
                 if portnum < 1024:
                     risk = "Médio"
             p2 = dict(p)
@@ -159,7 +157,7 @@ class InterpreterEngine:
             return "Médio"
         return "Baixo"
 
-    # ---------- geração de texto humano ----------
+   
     def make_human_summary(self, host, portas_scored, nikto_scored, techs):
         """
         Retorna um par (titulo, texto) em português resumindo os achados de forma amigável.
@@ -183,7 +181,7 @@ class InterpreterEngine:
         if techs:
             parts.append(f"Tecnologias detectadas: {', '.join(html_lib.escape(t) for t in techs[:6])}.")
 
-        # conclusão
+       
         agg = self.aggregate_risk(portas_scored, nikto_scored)
         if agg == "Alto":
             concl = "<b>Risco GLOBAL: Alto.</b> Recomenda-se ação imediata."
@@ -195,14 +193,14 @@ class InterpreterEngine:
 
         return "<br>".join(parts)
 
-    # ---------- recomendações ----------
+    
     def recommendations(self, portas_scored, nikto_scored, techs):
         recs = []
-        # fechar portas de alto risco se não usadas
+       
         for p in portas_scored:
             if p["risk"]=="Alto":
                 recs.append(f"Revisar serviço na porta {p['port']}. Feche se não for necessário ou restrinja por firewall.")
-        # nikto suggestions
+        
         for n in nikto_scored:
             f = n["finding"].lower()
             if "phpinfo" in f:
@@ -211,10 +209,10 @@ class InterpreterEngine:
                 recs.append("Remova arquivos de backup e diretórios .git/.env acessíveis publicamente.")
             if "x-powered-by" in f:
                 recs.append("Remova ou encubra o header X-Powered-By para reduzir fingerprinting.")
-        # techs suggestions
+      
         if any("WordPress" in t for t in techs):
             recs.append("Verifique plugins e atualize o WordPress e seus plugins para a versão mais recente.")
-        # dedupe and return top 8
+       
         seen = []
         out = []
         for r in recs:
@@ -223,14 +221,14 @@ class InterpreterEngine:
                 out.append(r)
         return out[:8]
 
-    # ---------- gerar relatório HTML completo ----------
+    
     def generate_html_report(self, pasta, host, portas_scored, nikto_scored, techs, save_name=None):
         timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         if not save_name:
             save_name = f"{re.sub(r'[^A-Za-z0-9_.-]','_',host)}_interpreted.html"
         path = os.path.join(pasta, save_name)
 
-        # construir seções
+       
         summary = self.make_human_summary(host, portas_scored, nikto_scored, techs)
         recs = self.recommendations(portas_scored, nikto_scored, techs)
 
@@ -296,7 +294,7 @@ th,td{{text-align:left;padding:8px;border-bottom:1px solid #eee}}
             f.write(html)
         return path
 
-    # ---------- função principal ----------
+    
     def interpret(self, host, nmap_out="", nikto_out="", whatweb_out=""):
         """
         Fluxo único: parse -> score -> summary -> recomendações -> HTML
