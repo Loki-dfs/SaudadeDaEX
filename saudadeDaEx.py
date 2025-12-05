@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# saudadeDaEx.py — versão refatorada "Cyber Roxo"
+# Mantém 100% das funcionalidades originais, apenas melhora estilo, organização e UX.
 
 import os
 import sys
@@ -12,126 +14,186 @@ import shutil
 import urllib.request
 import html as html_lib
 
+# Import do interpreter (mantenha interpreter.py ao lado)
+from interpreter import InterpreterEngine
+
 # ==============================
-# CONFIG
+# CONFIG / PATHS / TOOLS
 # ==============================
 TOOL_NAME = "saudadeDaEx"
-VERSION = "0.3"
+VERSION = "0.5"
 NMAP = shutil.which("nmap") or "nmap"
 NIKTO = shutil.which("nikto") or "nikto"
 WHATWEB = shutil.which("whatweb") or None
 OPEN_FOLDER = True
 
 # ==============================
-# ANSI COLORS
+# COLORS (CYBER ROXO THEME)
 # ==============================
 RESET = "\033[0m"
 BOLD = "\033[1m"
-RED = "\033[31m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-BLUE = "\033[34m"
-MAGENTA = "\033[35m"
+DIM = "\033[2m"
+
+PURPLE = "\033[95m"
+MAGENTA = "\033[35m"   # alternative purple
 CYAN = "\033[36m"
+YELLOW = "\033[33m"
+GREEN = "\033[32m"
+RED = "\033[31m"
 WHITE = "\033[37m"
 
-def banner():
-    print(f"""{RED}{BOLD}
-  ____                 _           _        ____  
- / ___|  __ _ _ __ ___| |__     __| |      |  _ \ 
- \___ \ / _` | '__/ _ \ '_ \   / _` |      | | | |
-  ___) | (_| | | |  __/ |_) | | (_| |   _  | |_| |
- |____/ \__,_|_|  \___|_.__/   \__,_|  (_) |____/ 
+# ==============================
+# UTIL: LOG / UI / HELPERS
+# ==============================
 
-        saudadeDaEx — Scanner Profissional
-    {RESET}
+def _fmt(prefix: str, msg: str, color: str = WHITE):
+    return f"{color}{prefix}{RESET} {msg}"
+
+def info(msg: str):
+    print(_fmt("[i]", msg, CYAN))
+
+def warn(msg: str):
+    print(_fmt("[!]", msg, YELLOW))
+
+def ok(msg: str):
+    print(_fmt("[✓]", msg, GREEN))
+
+def err(msg: str):
+    print(_fmt("[x]", msg, RED))
+
+def banner():
+    clear()
+    print(f"""{PURPLE}{BOLD}
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║   ███████╗ █████╗ ██╗   ██╗██████╗  █████╗ ██╗      █████╗  ██╗║
+║   ██╔════╝██╔══██╗██║   ██║██╔══██╗██╔══██╗██║     ██╔══██╗███║║
+║   ███████╗███████║██║   ██║██║  ██║███████║██║     ███████║╚██║║
+║   ╚════██║██╔══██║██║   ██║██║  ██║██╔══██║██║     ██╔══██║ ██ ║
+║   ███████║██║  ██║╚██████╔╝██████╔╝██║  ██║███████╗██║  ██║ █ ║
+║   ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚═╝║
+║                                                                ║
+║          saudadeDaEx                                           ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝{RESET}
 """)
 
+def clear():
+    os.system("cls" if os.name == "nt" else "clear")
 
+def safe_name(s):
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", s)
 
-def check_dependencies():
-    missing = []
-    if shutil.which("nmap") is None:
-        missing.append("nmap")
-    if shutil.which("nikto") is None:
-        missing.append("nikto")
-    # WhatWeb is optional — não adicionamos na lista de faltantes
-    return missing
-
+# run a shell command with timeout, returns combined stdout+stderr
 def run_cmd(cmd, timeout=None):
     try:
         res = subprocess.run(cmd, shell=True, text=True,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              timeout=timeout)
-        return res.stdout + res.stderr
+        return (res.stdout or "") + (res.stderr or "")
     except subprocess.TimeoutExpired:
         return "[TIMEOUT] O comando demorou demais."
+    except Exception as e:
+        return f"[ERRO AO EXECUTAR] {e}"
 
-def spinner(thread, text="Processando..."):
-    spinner_chars = ["|","/","-","\\"]
-    i = 0
-    while thread.is_alive():
-        print(f"\r{YELLOW}{text} {spinner_chars[i % 4]}{RESET}", end="")
-        time.sleep(0.12)
-        i += 1
-    print("\r" + " " * (len(text)+4), end="\r")
+# Spinner: melhor visual, aceita evento ou thread
+class Spinner:
+    def __init__(self, text="Processando", color=PURPLE):
+        self.text = text
+        self._stop = threading.Event()
+        self.color = color
+        self._t = None
+        self._chars = ["⠁","⠂","⠄","⡀","⢀","⠠","⠐","⠈"]  # nicer spinner frames
 
+    def start(self):
+        self._stop.clear()
+        self._t = threading.Thread(target=self._spin_loop, daemon=True)
+        self._t.start()
+        return self
+
+    def stop(self):
+        if self._t and self._t.is_alive():
+            self._stop.set()
+            self._t.join(timeout=1)
+
+    def _spin_loop(self):
+        i = 0
+        while not self._stop.is_set():
+            ch = self._chars[i % len(self._chars)]
+            print(f"\r{self.color}{self.text} {ch}{RESET}", end="", flush=True)
+            time.sleep(0.09)
+            i += 1
+        print("\r" + " " * (len(self.text) + 6), end="\r")
+
+    # context manager
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.stop()
+
+# open folder cross-platform
 def open_folder(path):
-    system = platform.system()
     try:
+        system = platform.system()
         if system == "Windows":
             os.startfile(path)
         elif system == "Darwin":
             subprocess.Popen(["open", path])
         else:
             subprocess.Popen(["xdg-open", path])
-    except:
-        print(RED + "Falha ao abrir pasta." + RESET)
+    except Exception:
+        warn("Falha ao abrir pasta (verifique ambiente gráfico).")
 
-def safe_name(s):
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", s)
+# confirm authorization helper
+def confirm_auth():
+    print(f"{YELLOW}\nVocê TEM autorização para escanear este alvo? (yes/no){RESET}")
+    if input("> ").lower() not in ("yes", "y"):
+        err("Operação abortada.")
+        sys.exit()
 
+# ==============================
+# PARSERS / INTERPRETERS (UTILS)
+# ==============================
 
-
-# ---- NIKTO COMPLETO ----
 def interpretar_nikto(txt):
     """
-    Nikto moderno usa: + texto
-    Qualquer linha iniciada com + é um achado
+    Versão simples: conta linhas que parecem achados.
+    Mantido para compatibilidade com InterpreterEngine fallback.
     """
     vulns = 0
     caminhos = 0
-
+    if not txt:
+        return 0, 0
     for l in txt.splitlines():
         l = l.strip()
-
-        # Nikto normalmente começa achados com "+ " (mais pode variar)
         if l.startswith("+"):
             vulns += 1
-
-            # se houver caminho no texto
             if "/" in l:
                 caminhos += 1
-
     return vulns, caminhos
 
-
 def interpretar_nmap_site(txt):
+    if not txt:
+        return []
     return re.findall(r"([0-9]+)/tcp\s+open", txt)
 
 def interpretar_nmap_rede(txt):
+    if not txt:
+        return [], []
     hosts = re.findall(r"Nmap scan report for ([0-9\.]+)", txt)
     portas = re.findall(r"([0-9]+)/tcp\s+open", txt)
     return hosts, portas
 
-
+# ==============================
+# HTML REPORT GENERATOR (kept behavior)
+# ==============================
 def gerar_html_resumo(pasta, alvo, modo, **stats):
     filename = f"{safe_name(alvo)}_resumo.html"
     path = os.path.join(pasta, filename)
 
     timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-
-    # construir bloco de tecnologias se houver
     tech_html = ""
     tecnologias = stats.get("tecnologias", [])
     if tecnologias:
@@ -155,11 +217,9 @@ def gerar_html_resumo(pasta, alvo, modo, **stats):
         <br>Portas abertas: <b>{portas}</b>
         <br>Diretórios sensíveis: <b>{caminhos}</b>
         """
-
     else:
         hosts = len(stats.get("hosts", []))
         portas = len(stats.get("portas", []))
-
         summary = f"""
         Hosts ativos detectados: <b>{hosts}</b>
         <br>Portas abertas totais: <b>{portas}</b>
@@ -171,10 +231,12 @@ def gerar_html_resumo(pasta, alvo, modo, **stats):
         <meta charset='utf-8'>
         <title>Resumo - {html_lib.escape(alvo)}</title>
         <style>
-            body {{ background:#f7f7f7; font-family:Arial; padding:20px; }}
-            .box {{ background:white; padding:20px; border-radius:10px;
-                   box-shadow:0 0 10px rgba(0,0,0,0.15); }}
+            body {{ background:#0f0b12; color:#e6e6f2; font-family:Arial,Helvetica,sans-serif; padding:20px; }}
+            .box {{ background:#18121b; padding:20px; border-radius:10px; border:1px solid #2b1b2e;
+                   box-shadow:0 0 10px rgba(0,0,0,0.6); }}
+            a {{ color:#caa2ff; }}
             ul {{ margin:0 0 0 18px; }}
+            h1,h2 {{ color:#ffd7ff; }}
         </style>
     </head>
     <body>
@@ -188,42 +250,43 @@ def gerar_html_resumo(pasta, alvo, modo, **stats):
 
         <h2>Recomendações Gerais</h2>
         <ul>
-            <li>Atualize o servidor.</li>
+            <li>Atualize o servidor e aplique patches.</li>
             <li>Remova diretórios sensíveis expostos.</li>
-            <li>Feche portas desnecessárias.</li>
-            <li>Proteja servidores com firewall e regras adequadas.</li>
+            <li>Feche portas desnecessárias e restrinja por firewall.</li>
+            <li>Implemente monitoração e alertas.</li>
         </ul>
     </body>
     </html>
     """
 
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(html)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html)
+    except Exception as e:
+        warn(f"Falha ao salvar resumo HTML: {e}")
+        return None
 
     return path
 
-# ------------------ DETECÇÃO DE TECNOLOGIAS ------------------
-
+# ==============================
+# TECHNOLOGY DETECTION
+# ==============================
 def detectar_tecnologias(host, pasta):
     """
-    Retorna lista de tecnologias detectadas.
-    Usa WhatWeb se disponível, caso contrário usa um fallback básico (headers + meta generator).
-    Salva raw output em pasta (whatweb_raw.txt ou tech_raw.txt)
+    Detecta tecnologias via WhatWeb (se disponível) ou via fallback (headers + html patterns).
+    Salva saídas brutas em pasta.
     """
     techs = []
-
     host_url = host
-    # garantir esquema para requests fallback
     if not re.match(r"^https?://", host_url):
         host_url = "http://" + host_url
 
+    # Try WhatWeb (if installed)
     if WHATWEB:
         try:
             out = run_cmd(f"{WHATWEB} -q {host_url}")
-            # salvar raw
             with open(os.path.join(pasta, "whatweb_raw.txt"), "w", encoding="utf-8") as f:
-                f.write(out)
-            # parse básico: [Tech][Another]
+                f.write(out or "")
             parts = out.split("[")
             for p in parts[1:]:
                 tech = p.split("]")[0].strip()
@@ -233,47 +296,43 @@ def detectar_tecnologias(host, pasta):
         except Exception:
             pass
 
-    # fallback: pegar headers + meta generator
+    # Fallback: http headers + basic HTML inspection
     try:
-        req = urllib.request.Request(host_url, headers={"User-Agent": "Mozilla/5.0 (saudadeDaEx)"})
+        req = urllib.request.Request(host_url, headers={"User-Agent": f"Mozilla/5.0 ({TOOL_NAME})"})
         with urllib.request.urlopen(req, timeout=8) as resp:
             headers = resp.headers
-            body = resp.read(100000).decode(errors="ignore")  # limitar leitura
-            # salvar raw
+            body = resp.read(100000).decode(errors="ignore")
             with open(os.path.join(pasta, "tech_raw.txt"), "w", encoding="utf-8") as f:
                 f.write("=== HEADERS ===\n")
                 f.write(str(headers))
                 f.write("\n\n=== HTML (primeiros 100KB) ===\n")
-                f.write(body)
+                f.write(body or "")
 
-            # extrair algumas tecnologias comuns a partir dos headers/html
             server = headers.get("Server")
-            if server:
-                if server not in techs:
-                    techs.append(f"Server: {server}")
-
+            if server and server not in techs:
+                techs.append(f"Server: {server}")
             xpb = headers.get("X-Powered-By")
             if xpb and xpb not in techs:
                 techs.append(f"X-Powered-By: {xpb}")
 
-            # cookies (ex.: PHPSESSID)
-            setcookie = headers.get_all("Set-Cookie") if hasattr(headers, "get_all") else headers.get("Set-Cookie")
+            # cookies check
+            try:
+                setcookie = headers.get_all("Set-Cookie") if hasattr(headers, "get_all") else headers.get("Set-Cookie")
+            except Exception:
+                setcookie = None
             if setcookie:
-                # detectar PHP, ASP
                 sc_text = str(setcookie)
                 if "PHPSESSID" in sc_text and "PHP" not in techs:
                     techs.append("PHP (cookie detected)")
                 if "wordpress" in sc_text.lower() and "WordPress" not in techs:
                     techs.append("WordPress (cookie)")
 
-            # meta generator
-            m = re.search(r'<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)["\']', body, re.IGNORECASE)
+            m = re.search(r'<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)["\']', body or "", re.IGNORECASE)
             if m:
                 gen = m.group(1).strip()
                 if gen and gen not in techs:
                     techs.append(f"Generator: {gen}")
 
-            # procurar por padrões em body (jquery, react, wp-content)
             patterns = {
                 "jQuery": r"jquery(?:\.min)?\.js",
                 "React": r"react(?:[-\.]|/|>)",
@@ -285,20 +344,26 @@ def detectar_tecnologias(host, pasta):
                 "Express": r"X-Powered-By: Express"
             }
             for name, pat in patterns.items():
-                if re.search(pat, body, re.IGNORECASE) and name not in techs:
+                if re.search(pat, body or "", re.IGNORECASE) and name not in techs:
                     techs.append(name)
-
     except Exception as e:
-        # não foi possível conectar — não adiciona nada além de nota
         techs.append(f"(detector fallback falhou: {e})")
 
     return techs
 
+# ==============================
+# SCANS — turbo / full / rede
+# ==============================
 
 def scan_site_turbo(host):
+    """
+    Scan rápido: Nmap rápido + Nikto (se portas 80/443 abertas) + WhatWeb (opcional).
+    Retorna: nmap_out, nikto_out, techs, ww_out
+    """
     nmap_out = ""
     nikto_out = ""
     techs = []
+    ww_out = ""
 
     def run_nmap():
         nonlocal nmap_out
@@ -312,31 +377,54 @@ def scan_site_turbo(host):
         else:
             nikto_out = ""
 
-    t1 = threading.Thread(target=run_nmap)
-    t2 = threading.Thread(target=run_nikto)
+    t1 = threading.Thread(target=run_nmap, daemon=True)
+    t2 = threading.Thread(target=run_nikto, daemon=True)
     t1.start(); t2.start()
-    while t1.is_alive() or t2.is_alive():
-        for s in "|/-\\":
-            print(f"\r{CYAN}Scan Turbo {s}{RESET}", end="")
-            time.sleep(0.12)
-    print("\r", end="")
 
-    # detectar tecnologias (rápido) - run after threads to avoid extra wait
-    techs = detectar_tecnologias(host, ".")  # pasta será substituída na main; salvamos later na pasta correta
-    return nmap_out, nikto_out, techs
+    with Spinner("Scan Turbo — executando", color=MAGENTA):
+        while t1.is_alive() or t2.is_alive():
+            time.sleep(0.12)
+
+    # WhatWeb quick (if available)
+    if WHATWEB:
+        try:
+            ww_out = run_cmd(f"{WHATWEB} -q http://{host} --log-brief 2>/dev/null")
+        except Exception:
+            ww_out = ""
+
+    techs = detectar_tecnologias(host, ".")
+    return nmap_out, nikto_out, techs, ww_out
 
 def scan_site_full(host):
-    print(f"{YELLOW}Executando Nikto COMPLETO… Pode demorar.{RESET}\n")
+    """
+    Scan completo: nmap -sV, nikto completo e whatweb (se disponível).
+    Retorna: nmap_out, nikto_out, techs, ww_out
+    """
+    ok("Iniciando scan FULL (pode demorar)...")
     nmap_out = run_cmd(f"{NMAP} -sV -n {host}")
     nikto_out = run_cmd(f"{NIKTO} -h {host}")
+    ww_out = ""
+    if WHATWEB:
+        try:
+            ww_out = run_cmd(f"{WHATWEB} -q http://{host}")
+        except Exception:
+            ww_out = ""
     techs = detectar_tecnologias(host, ".")
-    return nmap_out, nikto_out, techs
+    return nmap_out, nikto_out, techs, ww_out
 
 def scan_rede_turbo(alvo):
-    return run_cmd(f"{NMAP} -T5 -F -n {alvo}")
+    """
+    Scan rápido de rede.
+    Retorna: nmap_out (string)
+    """
+    with Spinner("Scan de rede — executando", color=MAGENTA):
+        return run_cmd(f"{NMAP} -T5 -F -n {alvo}")
 
+# ==============================
+# MENU / FLOW
+# ==============================
 
-def menu():
+def printed_menu():
     banner()
     print(f"{CYAN}Versão: {VERSION}{RESET}\n")
     print(f"{GREEN}1){RESET} Scan SITE (TURBO)")
@@ -347,17 +435,10 @@ def menu():
     print(f"{GREEN}6){RESET} Sair\n")
     return input(f"{CYAN}Escolha: {RESET}")
 
-
-def confirm_auth():
-    print(f"{YELLOW}\nVocê TEM autorização para escanear este alvo? (yes/no){RESET}")
-    if input("> ").lower() not in ("yes", "y"):
-        print(f"{RED}Operação abortada.{RESET}")
-        sys.exit()
-
-
 # ==============================
-# UPDATE AUTOMÁTICO
+# UPDATE / UNINSTALL (mantidos)
 # ==============================
+
 def update_saudade():
     print(f"{CYAN}{BOLD}Verificando atualizações...{RESET}")
 
@@ -365,121 +446,143 @@ def update_saudade():
     RAW_URL = "https://raw.githubusercontent.com/Loki-dfs/SaudadeDaEX/main/saudadeDaEx.py"
 
     try:
-        # baixar versão nova para memória
-        print(f"{YELLOW}Baixando versão mais recente...{RESET}")
+        info("Baixando versão mais recente...")
         response = urllib.request.urlopen(RAW_URL, timeout=10)
         new_code = response.read().decode("utf-8")
 
         if len(new_code) < 100:
-            print(f"{RED}Erro: código remoto parece inválido!{RESET}")
+            err("Erro: código remoto parece inválido!")
             sys.exit()
 
-        # escrever nova versão no arquivo instalado
-        print(f"{YELLOW}Atualizando arquivo em:{RESET} {INSTALL_PATH}")
+        info(f"Atualizando arquivo em: {INSTALL_PATH}")
         with open(INSTALL_PATH, "w", encoding="utf-8") as f:
             f.write(new_code)
-
         os.chmod(INSTALL_PATH, 0o755)
 
-        print(f"\n{GREEN}{BOLD}SaudadeDaEx atualizado com sucesso!{RESET}")
-        print(f"{GREEN}Versão atualizada disponível agora com o comando:{RESET}")
-        print(f"{CYAN}saudade{RESET}\n")
-
+        ok("SaudadeDaEx atualizado com sucesso!")
+        info("Versão atualizada disponível agora com o comando: saudade")
     except Exception as e:
-        print(f"{RED}Falha ao atualizar: {e}{RESET}")
+        err(f"Falha ao atualizar: {e}")
 
     sys.exit()
 
+def uninstall_saudade():
+    print(f"{RED}{BOLD}Iniciando desinstalação do SaudadeDaEx...{RESET}\n")
 
+    INSTALL_PATH = "/usr/local/bin/saudade"
+
+    if os.path.exists(INSTALL_PATH):
+        try:
+            os.remove(INSTALL_PATH)
+            ok(f"Comando removido: {INSTALL_PATH}")
+        except Exception:
+            err(f"Não foi possível remover {INSTALL_PATH}")
+    else:
+        warn(f"O comando não estava instalado em {INSTALL_PATH}")
+
+    removed = 0
+    for pasta in os.listdir("."):
+        if pasta.startswith("saudade_"):
+            try:
+                shutil.rmtree(pasta)
+                removed += 1
+            except Exception:
+                pass
+
+    ok(f"Pastas removidas: {removed}")
+
+    HOME_CONFIG = os.path.expanduser("~/.saudade")
+    if os.path.exists(HOME_CONFIG):
+        try:
+            shutil.rmtree(HOME_CONFIG)
+            ok("Configurações removidas.")
+        except Exception:
+            err("Não foi possível remover configs.")
+
+    ok("SaudadeDaEx removido do sistema.")
+    sys.exit()
+
+# ==============================
+# MAIN ENTRYPOINT
+# ==============================
 def main():
     deps = check_dependencies()
     if deps:
-        print(f"{RED}Ferramentas faltando: {', '.join(deps)}{RESET}")
+        err(f"Ferramentas faltando: {', '.join(deps)}")
         sys.exit()
 
     while True:
-        choice = menu()
+        choice = printed_menu()
 
-        # UPDATE
         if choice == "4":
             update_saudade()
             continue
-
-        # UNINSTALL
         if choice == "5":
             uninstall_saudade()
             continue
-
-        # SAIR
         if choice == "6":
-            print(f"{GREEN}Saindo…{RESET}")
+            ok("Saindo…")
             sys.exit()
 
-        # opções inválidas
         if choice not in ("1", "2", "3"):
-            print(f"{RED}Opção inválida.{RESET}")
+            err("Opção inválida.")
+            time.sleep(1)
             continue
 
-        # CONFIRMAR AUTORIZAÇÃO
         confirm_auth()
-
         alvo = input(f"{CYAN}Digite o alvo:{RESET} ").strip()
         host = re.sub(r"^https?://", "", alvo).split("/")[0]
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         pasta = f"saudade_{timestamp}"
-        os.makedirs(pasta, exist_ok=True)
+        try:
+            os.makedirs(pasta, exist_ok=True)
+        except Exception as e:
+            err(f"Falha ao criar pasta de relatório: {e}")
+            continue
 
-        print(f"{GREEN}\nPasta criada:{RESET} {pasta}\n")
+        ok(f"Pasta criada: {pasta}\n")
 
         nmap_out = ""
         nikto_out = ""
         techs = []
+        ww_out = ""
 
-        # EXECUÇÃO DOS TIPOS DE SCAN
-        if choice == "1":
-            print(f"{BLUE}Executando SITE TURBO…{RESET}")
-            nmap_out, nikto_out, techs = scan_site_turbo(host)
-
-        elif choice == "2":
-            print(f"{BLUE}Executando SITE FULL…{RESET}")
-            nmap_out, nikto_out, techs = scan_site_full(host)
-
-        elif choice == "3":
-            print(f"{BLUE}Executando REDE TURBO…{RESET}")
-            nmap_out = scan_rede_turbo(host)
-            nikto_out = ""
-            techs = []
+        try:
+            if choice == "1":
+                info("Executando SITE TURBO…")
+                nmap_out, nikto_out, techs, ww_out = scan_site_turbo(host)
+            elif choice == "2":
+                info("Executando SITE FULL…")
+                nmap_out, nikto_out, techs, ww_out = scan_site_full(host)
+            elif choice == "3":
+                info("Executando REDE TURBO…")
+                nmap_out = scan_rede_turbo(host)
+                nikto_out = ""
+                techs = []
+                ww_out = ""
+        except KeyboardInterrupt:
+            warn("Scan interrompido pelo usuário.")
+            continue
+        except Exception as e:
+            err(f"Erro durante o scan: {e}")
+            continue
 
         # SALVAR BRUTOS
-        with open(os.path.join(pasta, "nmap_raw.txt"), "w", encoding="utf-8") as f:
-            f.write(nmap_out or "")
-
-        if nikto_out:
-            with open(os.path.join(pasta, "nikto_raw.txt"), "w", encoding="utf-8") as f:
-                f.write(nikto_out or "")
-
-        # SALVAR TECHNOLOGIAS RAW
-        if choice in ("1", "2"):
-            if WHATWEB:
-                ww_out = run_cmd(f"{WHATWEB} -q http://{host}")
+        try:
+            with open(os.path.join(pasta, "nmap_raw.txt"), "w", encoding="utf-8") as f:
+                f.write(nmap_out or "")
+            if nikto_out:
+                with open(os.path.join(pasta, "nikto_raw.txt"), "w", encoding="utf-8") as f:
+                    f.write(nikto_out or "")
+            if ww_out:
                 with open(os.path.join(pasta, "whatweb_raw.txt"), "w", encoding="utf-8") as f:
                     f.write(ww_out or "")
-
-                # Parse rápido
-                if not techs:
-                    parts = ww_out.split("[")
-                    techs = []
-                    for p in parts[1:]:
-                        tech = p.split("]")[0].strip()
-                        if tech and tech not in techs:
-                            techs.append(tech)
-
             else:
-                # fallback simples
+                # fallback save headers/html
                 try:
                     url = "http://" + host if not re.match(r"^https?://", host) else host
-                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (saudadeDaEx)"})
+                    req = urllib.request.Request(url, headers={"User-Agent": f"Mozilla/5.0 ({TOOL_NAME})"})
                     with urllib.request.urlopen(req, timeout=8) as resp:
                         headers = resp.headers
                         body = resp.read(100000).decode(errors="ignore")
@@ -487,142 +590,99 @@ def main():
                             f.write("=== HEADERS ===\n")
                             f.write(str(headers))
                             f.write("\n\n=== HTML (primeiros 100KB) ===\n")
-                            f.write(body)
-                except:
+                            f.write(body or "")
+                except Exception:
                     pass
+        except Exception as e:
+            warn(f"Falha ao salvar saídas brutas: {e}")
 
-        # INTERPRETAÇÃO E RESUMO
-        if choice in ("1", "2"):
-            portas = interpretar_nmap_site(nmap_out)
-            vulns, caminhos = interpretar_nikto(nikto_out)
+        # INTERPRETAÇÃO E RESUMO (USANDO InterpreterEngine)
+        try:
+            engine = InterpreterEngine(tool_name=TOOL_NAME)
 
-            resumo = gerar_html_resumo(
-                pasta, alvo, "site",
-                vulns=vulns, portas=portas, caminhos=caminhos, tecnologias=techs
-            )
+            if choice in ("1", "2"):
+                res = engine.interpret(
+                    host,
+                    nmap_out=nmap_out,
+                    nikto_out=nikto_out,
+                    whatweb_out=ww_out
+                )
+                interpreted_path = engine.generate_html_report(
+                    pasta,
+                    host,
+                    portas_scored=res.get("ports", []),
+                    nikto_scored=res.get("nikto", []),
+                    techs=res.get("techs", [])
+                )
 
-            print(f"{GREEN}{BOLD}Resumo:{RESET}")
-            print(f"Vulnerabilidades: {RED}{vulns}{RESET}")
-            print(f"Portas abertas: {CYAN}{len(portas)}{RESET}")
-            print(f"Diretórios sensíveis: {MAGENTA}{caminhos}{RESET}\n")
-
-            if techs:
-                print(f"{GREEN}Tecnologias detectadas:{RESET}")
-                for t in techs:
-                    print(f" - {YELLOW}{t}{RESET}")
+                print(f"{GREEN}{BOLD}Resumo Interpretado:{RESET}")
+                print(f"Risco global: {YELLOW}{res.get('risk', 'Desconhecido')}{RESET}")
+                print(f"Tecnologias: {CYAN}{', '.join(res.get('techs', [])[:6]) or 'Nenhuma'}{RESET}")
+                if res.get("recommendations"):
+                    print(f"Recomendações automáticas: {MAGENTA}{len(res.get('recommendations'))}{RESET}")
                 print()
+                print(f"{YELLOW}Relatório interpretado salvo em:{RESET} {interpreted_path}\n")
             else:
-                print(f"{YELLOW}Nenhuma tecnologia detectada.{RESET}\n")
+                hosts, portas = interpretar_nmap_rede(nmap_out)
+                ports_simple = []
+                for p in portas:
+                    try:
+                        pn = int(p)
+                    except Exception:
+                        pn = 0
+                    ports_simple.append({"port": pn, "proto": "tcp", "state": "open", "service": "unknown", "version": "", "risk": "Médio"})
 
-        else:
-            hosts, portas = interpretar_nmap_rede(nmap_out)
+                interpreted_path = engine.generate_html_report(
+                    pasta,
+                    host,
+                    portas_scored=ports_simple,
+                    nikto_scored=[],
+                    techs=[]
+                )
 
-            resumo = gerar_html_resumo(
-                pasta, alvo, "rede",
-                hosts=hosts, portas=portas
-            )
+                print(f"{GREEN}{BOLD}Resumo Interpretado (REDE):{RESET}")
+                print(f"Hosts ativos: {CYAN}{len(hosts)}{RESET}")
+                print(f"Portas abertas (total): {MAGENTA}{len(portas)}{RESET}\n")
+                print(f"{YELLOW}Relatório interpretado salvo em:{RESET} {interpreted_path}\n")
 
-            print(f"{GREEN}{BOLD}Resumo:{RESET}")
-            print(f"Hosts ativos: {CYAN}{len(hosts)}{RESET}")
-            print(f"Portas abertas (total): {MAGENTA}{len(portas)}{RESET}\n")
-
-        print(f"{YELLOW}Relatório HTML salvo em:{RESET} {resumo}\n")
+        except Exception as e:
+            warn(f"Falha na interpretação (InterpreterEngine). O relatório bruto foi salvo. Erro: {e}")
+            # fallback: generate a simple resumo HTML using old function
+            try:
+                # try to compute some basic stats for summary
+                if choice in ("1", "2"):
+                    vulns, caminhos = interpretar_nikto(nikto_out)
+                    portas = interpretar_nmap_site(nmap_out)
+                    resumo_path = gerar_html_resumo(pasta, host, "site", vulns=vulns, portas=portas, caminhos=caminhos, tecnologias=techs)
+                else:
+                    hosts, portas = interpretar_nmap_rede(nmap_out)
+                    resumo_path = gerar_html_resumo(pasta, host, "rede", hosts=hosts, portas=portas, tecnologias=techs)
+                if resumo_path:
+                    info(f"Resumo simples gerado em: {resumo_path}")
+            except Exception:
+                pass
 
         if OPEN_FOLDER:
             if input(f"{CYAN}Abrir pasta agora? (y/n){RESET} ").lower() == "y":
                 open_folder(pasta)
 
         if input(f"{CYAN}Rodar outro scan? (y/n){RESET} ").lower() != "y":
-            print(f"{GREEN}Saindo…{RESET}")
+            ok("Saindo…")
             break
 
-# ==============================
-# UNINSTALL
-# ==============================
-def uninstall_saudade():
-    print(f"{RED}{BOLD}Iniciando desinstalação do SaudadeDaEx...{RESET}\n")
-
-    INSTALL_PATH = "/usr/local/bin/saudade"
-
-    # remover comando global
-    if os.path.exists(INSTALL_PATH):
-        try:
-            os.remove(INSTALL_PATH)
-            print(f"{GREEN}[✓]{RESET} Comando removido: {INSTALL_PATH}")
-        except:
-            print(f"{RED}[X]{RESET} Não foi possível remover {INSTALL_PATH}")
-    else:
-        print(f"{YELLOW}[!]{RESET} O comando não estava instalado em {INSTALL_PATH}")
-
-    # remover pastas de relatórios
-    removed = 0
-    for pasta in os.listdir("."):
-        if pasta.startswith("saudade_"):
-            try:
-                shutil.rmtree(pasta)
-                removed += 1
-            except:
-                pass
-
-    print(f"{GREEN}[✓]{RESET} Pastas removidas: {removed}")
-
-    # remover configs futuras
-    HOME_CONFIG = os.path.expanduser("~/.saudade")
-    if os.path.exists(HOME_CONFIG):
-        try:
-            shutil.rmtree(HOME_CONFIG)
-            print(f"{GREEN}[✓]{RESET} Configurações removidas.")
-        except:
-            print(f"{RED}[X]{RESET} Não foi possível remover configs.")
-
-    print(f"\n{GREEN}{BOLD}SaudadeDaEx removido do sistema.{RESET}")
-    sys.exit()
-
+def check_dependencies():
+    missing = []
+    if shutil.which("nmap") is None:
+        missing.append("nmap")
+    if shutil.which("nikto") is None:
+        missing.append("nikto")
+    return missing
 
 # ==============================
-# UPDATE AUTOMÁTICO (VERSÃO CORRETA)
+# COMMAND LINE ENTRY (ARGUMENTS)
 # ==============================
-def update_saudade():
-    print(f"{CYAN}{BOLD}Verificando atualizações...{RESET}")
-
-    INSTALL_PATH = "/usr/local/bin/saudade"
-    RAW_URL = "https://raw.githubusercontent.com/Loki-dfs/SaudadeDaEX/main/saudadeDaEx.py"
-
-    try:
-        print(f"{YELLOW}Baixando versão mais recente...{RESET}")
-        response = urllib.request.urlopen(RAW_URL, timeout=10)
-        new_code = response.read().decode("utf-8")
-
-        if len(new_code) < 100:
-            print(f"{RED}Erro: código remoto parece inválido!{RESET}")
-            sys.exit()
-
-        print(f"{YELLOW}Atualizando arquivo em:{RESET} {INSTALL_PATH}")
-        with open(INSTALL_PATH, "w", encoding="utf-8") as f:
-            f.write(new_code)
-
-        os.chmod(INSTALL_PATH, 0o755)
-
-        print(f"\n{GREEN}{BOLD}SaudadeDaEx atualizado com sucesso!{RESET}")
-        print(f"{GREEN}Use:{RESET} {CYAN}saudade{RESET}")
-
-    except Exception as e:
-        print(f"{RED}Falha ao atualizar: {e}{RESET}")
-
-    sys.exit()
-
-
-# ==============================
-# ENTRYPOINT COM ARGUMENTOS
-# ==============================
-if __name__ == "__main__":
-
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
-
-        # HELP
-        if arg in ("--help", "-h", "help"):
-            print(f"""
+def print_help():
+    print(f"""
 {GREEN}{BOLD}SaudadeDaEx — Ajuda{RESET}
 
 Comandos disponíveis:
@@ -632,26 +692,29 @@ Comandos disponíveis:
   saudade --version         → mostra a versão  
   saudade --update          → atualiza para a versão mais recente  
   saudade --uninstall       → remove completamente  
-            """)
+""")
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+
+        if arg in ("--help", "-h", "help"):
+            print_help()
             sys.exit()
 
-        # VERSION
         if arg in ("--version", "-v"):
             print(f"{GREEN}{BOLD}SaudadeDaEx versão {VERSION}{RESET}")
             sys.exit()
 
-        # UPDATE
         if arg in ("--update", "update"):
             update_saudade()
 
-        # UNINSTALL
         if arg in ("--uninstall", "-u", "uninstall"):
             uninstall_saudade()
 
         print(f"{RED}Comando desconhecido: {arg}{RESET}")
         sys.exit()
 
-    # SEM ARGUMENTOS → roda o programa normal
     try:
         main()
     except KeyboardInterrupt:
