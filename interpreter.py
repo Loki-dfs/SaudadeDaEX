@@ -1,4 +1,4 @@
-#
+
 import re
 import datetime
 import os
@@ -323,5 +323,5 @@ th,td{{text-align:left;padding:8px;border-bottom:1px solid #eee}}
             "generated_at": datetime.datetime.now().isoformat()
         }
 
-        # gerar HTML em pasta atual (o chamador passa a pasta adequada)
+       
         return result
