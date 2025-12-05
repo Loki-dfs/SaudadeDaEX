@@ -1,87 +1,52 @@
-TOOL_NAME="saudadeDaEx"
-COMMAND_NAME="saudade"
+#!/bin/bash
 
-RAW_URL="https://raw.githubusercontent.com/Loki-dfs/SaudadeDaEX/main/saudadeDaEx.py"
+echo -e "\n\033[95m╔════════════════════════════════════════════════╗"
+echo -e   "║        saudadeDaEx — Instalador Oficial        ║"
+echo -e   "╚════════════════════════════════════════════════╝\033[0m\n"
 
-INSTALL_DIR="/usr/local/bin"
-SCRIPT_PATH="$INSTALL_DIR/$COMMAND_NAME"
-
-# CORES
-BLUE="\033[34m"
-GREEN="\033[32m"
-RED="\033[31m"
-YELLOW="\033[33m"
-RESET="\033[0m"
-
-
-echo -e "${BLUE}"
-echo "  ───────────────────────────────────────────────"
-echo "          INSTALADOR OFICIAL — SaudadeDaEx        "
-echo "  ───────────────────────────────────────────────"
-echo -e "${RESET}"
-
-
-# ==========================
-# VERIFICAR ROOT
-# ==========================
-if [[ $EUID -ne 0 ]]; then
-    echo -e "${RED}[ERRO]${RESET} Execute como root:"
-    echo "sudo bash install.sh"
+# ===== CHECK ROOT =====
+if [ "$EUID" -ne 0 ]; then
+    echo -e "\033[31m[ERRO]\033[0m Rode como root:"
+    echo "sudo ./install.sh"
     exit 1
 fi
 
+# ===== UPDATE =====
+echo -e "\033[36m[1/6] Atualizando pacotes...\033[0m"
+apt update -y
 
-# ==========================
-# VERIFICAR DEPENDÊNCIAS
-# ==========================
-echo -e "${YELLOW}[•] Verificando dependências...${RESET}"
+# ===== INSTALAR DEPENDÊNCIAS =====
+echo -e "\033[36m[2/6] Instalando dependências do sistema...\033[0m"
+apt install -y nmap nikto whatweb python3-pip python3-venv
 
-DEPS=("python3" "curl" "nmap" "nikto" "whatweb")
+# ===== COPIAR ARQUIVOS =====
+echo -e "\033[36m[3/6] Criando diretório do SaudadeDaEx...\033[0m"
+mkdir -p /opt/saudade
+cp saudadeDaEx.py /opt/saudade/
+cp interpreter.py /opt/saudade/
 
-for dep in "${DEPS[@]}"; do
-    if ! command -v $dep >/dev/null 2>&1; then
-        echo -e "${RED}[FALTA]${RESET} $dep não encontrado."
-        FALTANDO=1
-    else
-        echo -e "${GREEN}[OK]${RESET} $dep encontrado."
-    fi
-done
+# ===== CRIAR AMBIENTE VIRTUAL =====
+echo -e "\033[36m[4/6] Criando ambiente virtual...\033[0m"
+python3 -m venv /opt/saudade/venv
 
-if [[ $FALTANDO -eq 1 ]]; then
-    echo -e "${RED}\nInstale os pacotes acima antes de continuar.${RESET}"
-    exit 1
-fi
+# ===== INSTALAR DEPENDÊNCIAS PYTHON =====
+echo -e "\033[36m[5/6] Instalando dependências Python...\033[0m"
+source /opt/saudade/venv/bin/activate
+pip install --upgrade pip
+pip install bs4 lxml
 
+# ===== CRIAR COMANDO GLOBAL =====
+echo -e "\033[36m[6/6] Criando comando global 'saudade'...\033[0m"
 
-# ==========================
-# BAIXAR SCRIPT
-# ==========================
-echo -e "\n${YELLOW}[•] Baixando o SaudadeDaEx...${RESET}"
+echo '#!/bin/bash
+source /opt/saudade/venv/bin/activate
+python3 /opt/saudade/saudadeDaEx.py "$@"' > /usr/local/bin/saudade
 
-curl -fsSL "$RAW_URL" -o "$SCRIPT_PATH"
+chmod +x /usr/local/bin/saudade
 
-if [[ $? -ne 0 ]]; then
-    echo -e "${RED}[ERRO] Falha ao baixar o arquivo!${RESET}"
-    exit 1
-fi
-
-
-# ==========================
-# PERMISSÕES
-# ==========================
-chmod +x "$SCRIPT_PATH"
-
-
-# ==========================
-# FINAL
-# ==========================
+# ===== FINAL =====
 echo ""
-echo -e "${GREEN}[✔] SaudadeDaEx instalado com sucesso!${RESET}"
+echo -e "\033[32m[✓] Instalação concluída com sucesso!\033[0m"
+echo -e "\033[35mVocê já pode usar o comando:\033[0m"
+echo -e "\033[36m   saudade\033[0m"
 echo ""
-echo "Para executar, use:"
-echo -e "${BLUE}saudade${RESET}"
-echo ""
-echo "Local de instalação:"
-echo "$SCRIPT_PATH"
-echo ""
-echo -e "${GREEN}Bom uso 🔥${RESET}"
